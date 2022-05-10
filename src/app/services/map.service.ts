@@ -363,7 +363,10 @@ export class MapService {
     this.markerPositionate.remove();
   }
 
-
+  /**
+   * Use after the user has placed a marker
+   * Shows a dialog to add details to this point.
+   */
   openModalWithNewPosition() {
     this.markerMoveMoving = false;
     this.markerMove.remove();

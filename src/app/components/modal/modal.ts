@@ -16,9 +16,9 @@ import { getConfigTag } from '../../../../scripts/osmToOsmgo/index.js'
 
 import { Feature, Tag, Preset, PrimaryTag, TagConfig } from '../../../type'
 
-import { cloneDeep, isEqual, findIndex } from 'lodash';
+import { cloneDeep, isEqual, findIndex, fromPairs } from 'lodash';
 import { TranslateService } from '@ngx-translate/core';
-
+import { center } from '@turf/turf';
 
 @Component({
   selector: 'modal',
@@ -40,6 +40,8 @@ export class ModalsContentPage implements OnInit {
   tagId: string;
   geometryType: 'point' | 'vertex' | 'line' | 'area';
 
+  nsiSuggestion: undefined | { displayName: string, id: string, locationSet: unknown, tags: Record<string, string>, tvk: string };
+  nsiHasDifferentTags: boolean = false;
 
   customValue = '';
 
@@ -262,10 +264,78 @@ export class ModalsContentPage implements OnInit {
   // renvoie l'élément du tableau correspondant  || TODO => pipe
   findElement(array, kv) { // {'user': 'fred'}
     const idx = findIndex(array, kv);
+    this.nsiSuggestion = undefined;
+
     if (idx !== -1) {
-      return array[idx];
+      const nameObj = array[idx];
+      const name = nameObj.value;
+      const [k, v] = this.tagId.split('/');
+
+      interface MatcherReturnType {
+        itemID: string;
+        kv: string;
+      }
+
+      const currentFeatureCenter = center(this.feature as any);
+      const currentLonLat = currentFeatureCenter.geometry.coordinates.reverse();
+
+      // TODO: I probably shouldn't use this callback to do this, but
+      // it seems to fire on every name change so works for me!
+      // TODO: also features location here for better matching quality
+      const matches = this.tagsService.matcher.match(k, v, name, currentLonLat) as null | Array<MatcherReturnType>;
+
+      if (matches !== null) {
+        const [firstMatch] = matches.filter(({ match }: any) => match === 'primary').map((match) => {
+          return this.tagsService.nsiIndex.id[match.itemID];
+        }).filter(a => !!a);
+
+        if (firstMatch) {
+          this.nsiSuggestion = firstMatch;
+          this.nsiHasDifferentTags = this.hasDifferentTags();
+        }
+      }
+
+      return nameObj;
     }
     return null;
+  }
+
+  applySuggestedTags() {
+    if (this.nsiSuggestion) {
+      Object.entries(this.nsiSuggestion.tags).forEach(([newKey, value]) => {
+        const existingTagIndex = this.tags.findIndex(({ key }) => key === newKey);
+
+        if (existingTagIndex !== -1) {
+          this.tags[existingTagIndex].value = value;
+        } else {
+          this.tags.push({
+            key: newKey,
+            value,
+          });
+        }
+      });
+
+      this.nsiHasDifferentTags = this.hasDifferentTags();
+    }
+  }
+
+  hasDifferentTags() {
+    if (!this.nsiSuggestion) {
+      return false
+    }
+
+    const differentKeys = Object.entries(this.nsiSuggestion.tags).filter(([newKey, newValue]) => {
+      const existingTagIndex = this.tags.findIndex(({ key }) => key === newKey);
+
+      if (existingTagIndex !== -1) {
+        const existingValue = this.tags[existingTagIndex].value;
+        return existingValue !== newValue;
+      }
+
+      return true;
+    });
+
+    return differentKeys.length > 0;
   }
 
   dismiss(data = null) {

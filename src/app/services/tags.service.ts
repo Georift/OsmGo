@@ -6,6 +6,8 @@ import { Storage } from '@ionic/storage';
 import { ConfigService } from './config.service';
 import { PresetOption, PrimaryTag, TagConfig } from "../../type";
 
+const { Matcher } = require('name-suggestion-index/dist/javascript/nsi.cjs');
+
 @Injectable({ providedIn: 'root' })
 export class TagsService {
     lastTagsUsedIds: string[];
@@ -18,10 +20,15 @@ export class TagsService {
     presets = {};
     hiddenTagsIds: string[];
 
+    // name suggestion index raw data
+    nsi: any;
+    nsiIndex: any = { path: {}, id: {}, meta: {} };
+
+    // matcher pre-loaded with the NSI
+    matcher: any;
+
     basemaps;
-    jsonSprites
-
-
+    jsonSprites;
     
     defaultHiddenTagsIds :string[] = [
         'highway/pedestrian_area',
@@ -352,6 +359,27 @@ export class TagsService {
 } 
 
     getTagsConfig$(): Observable<any> { 
+        this.http.get('https://cdn.jsdelivr.net/npm/name-suggestion-index@6.0.20220509/dist/nsi.min.json')
+            .subscribe((nsi: any) => {
+                this.nsi = nsi;
+                this.nsiIndex = { path: {}, id: {}, meta: nsi._meta };
+
+                  // populate cache
+                  Object.keys(this.nsi.nsi).forEach(tkv => {
+                    const category = this.nsi.nsi[tkv];
+                    const items = category.items;
+                    if (!Array.isArray(items)) return;
+                    this.nsiIndex.path[tkv] = items;
+                    items.forEach(item => {
+                      item.tkv = tkv;  // remember the path for later
+                      this.nsiIndex.id[item.id] = item;
+                    });
+                  });
+
+                this.matcher = new Matcher();
+                this.matcher.buildMatchIndex(this.nsi.nsi);
+            });
+
         return this.http.get(`assets/tagsAndPresets/tags.json`)
             .pipe( 
                 map( tagsConfig => {
